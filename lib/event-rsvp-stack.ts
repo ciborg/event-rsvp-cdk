@@ -6,11 +6,52 @@ import * as s3 from 'aws-cdk-lib/aws-s3';
 import * as cloudfront from 'aws-cdk-lib/aws-cloudfront';
 import * as origins from 'aws-cdk-lib/aws-cloudfront-origins';
 import * as s3deploy from 'aws-cdk-lib/aws-s3-deployment';
+import * as route53 from 'aws-cdk-lib/aws-route53';
+import * as certificatemanager from 'aws-cdk-lib/aws-certificatemanager';
+import * as targets from 'aws-cdk-lib/aws-route53-targets';
 import { Construct } from 'constructs';
 
+export interface EventRsvpStackProps extends cdk.StackProps {
+  domainName?: string;          // e.g., 'rsvp.example.com'
+  hostedZoneId?: string;        // Optional if zone exists
+  certificateArn?: string;      // Optional if cert exists
+}
+
 export class EventRsvpStack extends cdk.Stack {
-  constructor(scope: Construct, id: string, props?: cdk.StackProps) {
+  constructor(scope: Construct, id: string, props?: EventRsvpStackProps) {
     super(scope, id, props);
+
+    // Domain configuration (optional)
+    let hostedZone: route53.IHostedZone | undefined;
+    let certificate: certificatemanager.ICertificate | undefined;
+    let domainNames: string[] | undefined;
+
+    if (props?.domainName) {
+      // Create or reference existing hosted zone
+      if (props.hostedZoneId) {
+        hostedZone = route53.HostedZone.fromHostedZoneId(this, 'HostedZone', props.hostedZoneId);
+      } else {
+        // Extract root domain from subdomain (e.g., 'example.com' from 'rsvp.example.com')
+        const rootDomain = props.domainName.split('.').slice(-2).join('.');
+        hostedZone = new route53.HostedZone(this, 'HostedZone', {
+          zoneName: rootDomain,
+        });
+      }
+
+      // Create or reference existing certificate
+      if (props.certificateArn) {
+        certificate = certificatemanager.Certificate.fromCertificateArn(
+          this, 'Certificate', props.certificateArn
+        );
+      } else {
+        certificate = new certificatemanager.Certificate(this, 'Certificate', {
+          domainName: props.domainName,
+          validation: certificatemanager.CertificateValidation.fromDns(hostedZone),
+        });
+      }
+
+      domainNames = [props.domainName];
+    }
 
     // DynamoDB Table for Guest data
     const guestTable = new dynamodb.Table(this, 'GuestTable', {
@@ -82,7 +123,9 @@ export class EventRsvpStack extends cdk.Stack {
       restApiName: 'Event RSVP API',
       description: 'API for Event RSVP application',
       defaultCorsPreflightOptions: {
-        allowOrigins: apigateway.Cors.ALL_ORIGINS,
+        allowOrigins: props?.domainName
+          ? [`https://${props.domainName}`]
+          : apigateway.Cors.ALL_ORIGINS,
         allowMethods: apigateway.Cors.ALL_METHODS,
         allowHeaders: ['Content-Type', 'X-Amz-Date', 'Authorization', 'X-Api-Key'],
       },
@@ -133,6 +176,8 @@ export class EventRsvpStack extends cdk.Stack {
 
     // CloudFront Distribution
     const distribution = new cloudfront.Distribution(this, 'Distribution', {
+      domainNames: domainNames,
+      certificate: certificate,
       defaultBehavior: {
         origin: new origins.S3Origin(websiteBucket),
         viewerProtocolPolicy: cloudfront.ViewerProtocolPolicy.REDIRECT_TO_HTTPS,
@@ -161,6 +206,43 @@ export class EventRsvpStack extends cdk.Stack {
       ],
     });
 
+    // Route 53 alias record (if domain is configured)
+    if (props?.domainName && hostedZone) {
+      new route53.ARecord(this, 'AliasRecord', {
+        zone: hostedZone,
+        recordName: props.domainName,
+        target: route53.RecordTarget.fromAlias(
+          new targets.CloudFrontTarget(distribution)
+        ),
+      });
+    }
+
+    // API Gateway custom domain (if domain is configured)
+    let apiDomain: apigateway.DomainName | undefined;
+    if (props?.domainName && certificate) {
+      const apiSubdomain = `api.${props.domainName}`;
+
+      apiDomain = new apigateway.DomainName(this, 'ApiDomain', {
+        domainName: apiSubdomain,
+        certificate: certificate,
+        endpointType: apigateway.EndpointType.EDGE,
+        securityPolicy: apigateway.SecurityPolicy.TLS_1_2,
+      });
+
+      apiDomain.addBasePathMapping(api, { basePath: 'v1' });
+
+      // Route 53 record for API subdomain
+      if (hostedZone) {
+        new route53.ARecord(this, 'ApiAliasRecord', {
+          zone: hostedZone,
+          recordName: apiSubdomain,
+          target: route53.RecordTarget.fromAlias(
+            new targets.ApiGatewayDomain(apiDomain)
+          ),
+        });
+      }
+    }
+
     // Deploy website to S3 (will be done manually for now)
     // new s3deploy.BucketDeployment(this, 'DeployWebsite', {
     //   sources: [s3deploy.Source.asset('../event-rsvp-app/dist')],
@@ -176,18 +258,43 @@ export class EventRsvpStack extends cdk.Stack {
     });
 
     new cdk.CfnOutput(this, 'APIEndpoint', {
-      value: api.url,
+      value: apiDomain
+        ? `https://api.${props?.domainName}/v1`
+        : api.url,
       description: 'API Gateway endpoint URL',
     });
 
     new cdk.CfnOutput(this, 'WebsiteURL', {
-      value: `https://${distribution.distributionDomainName}`,
-      description: 'CloudFront distribution URL',
+      value: props?.domainName
+        ? `https://${props.domainName}`
+        : `https://${distribution.distributionDomainName}`,
+      description: 'Website URL',
     });
 
     new cdk.CfnOutput(this, 'WebsiteBucketName', {
       value: websiteBucket.bucketName,
       description: 'S3 bucket for website hosting',
     });
+
+    if (props?.domainName) {
+      new cdk.CfnOutput(this, 'DomainName', {
+        value: props.domainName,
+        description: 'Custom domain name',
+      });
+
+      if (hostedZone) {
+        new cdk.CfnOutput(this, 'HostedZoneId', {
+          value: hostedZone.hostedZoneId,
+          description: 'Route 53 Hosted Zone ID',
+        });
+      }
+
+      if (certificate) {
+        new cdk.CfnOutput(this, 'CertificateArn', {
+          value: certificate.certificateArn,
+          description: 'SSL Certificate ARN',
+        });
+      }
+    }
   }
 }
