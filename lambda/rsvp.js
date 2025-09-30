@@ -10,64 +10,56 @@ exports.handler = async (event) => {
     };
 
     try {
-        // Parse the request body
         const body = JSON.parse(event.body);
+        const { guestId, attending, plusOnes = 0, dietaryRestrictions = 'None' } = body;
 
-        // Extract user info from Cognito JWT token
-        const phoneNumber = event.requestContext.authorizer.claims.phone_number;
-
-        if (!phoneNumber) {
+        if (!guestId || attending === undefined) {
             return {
                 statusCode: 400,
                 headers,
                 body: JSON.stringify({
-                    error: 'Phone number not found in token'
-                })
-            };
-        }
-
-        // Validate required fields
-        const { name, attending, plusOnes = 0, dietaryRestrictions = '' } = body;
-
-        if (!name || attending === undefined) {
-            return {
-                statusCode: 400,
-                headers,
-                body: JSON.stringify({
-                    error: 'Missing required fields: name, attending'
+                    error: 'Missing required fields: guestId, attending'
                 })
             };
         }
 
         // Sanitize input data
         const sanitizedData = {
-            phoneNumber: phoneNumber.replace(/[^+\d]/g, ''), // Remove non-digit characters except +
-            name: name.trim().substring(0, 100), // Limit name length
             attending: Boolean(attending),
-            plusOnes: Math.max(0, Math.min(5, parseInt(plusOnes) || 0)), // Limit between 0-5
-            dietaryRestrictions: dietaryRestrictions.trim().substring(0, 500), // Limit length
+            plusOnes: Math.max(0, Math.min(5, parseInt(plusOnes) || 0)),
+            dietaryRestrictions: dietaryRestrictions.trim().substring(0, 100),
+            rsvpSubmitted: true,
             updatedAt: new Date().toISOString()
         };
 
-        // Save to DynamoDB
+        // Update guest in DynamoDB
         const params = {
             TableName: process.env.TABLE_NAME,
-            Item: sanitizedData
+            Key: { guestId },
+            UpdateExpression: 'SET attending = :attending, plusOnes = :plusOnes, dietaryRestrictions = :dietaryRestrictions, rsvpSubmitted = :rsvpSubmitted, updatedAt = :updatedAt',
+            ExpressionAttributeValues: {
+                ':attending': sanitizedData.attending,
+                ':plusOnes': sanitizedData.plusOnes,
+                ':dietaryRestrictions': sanitizedData.dietaryRestrictions,
+                ':rsvpSubmitted': sanitizedData.rsvpSubmitted,
+                ':updatedAt': sanitizedData.updatedAt
+            },
+            ReturnValues: 'ALL_NEW'
         };
 
-        await dynamodb.put(params).promise();
+        const result = await dynamodb.update(params).promise();
 
         return {
             statusCode: 200,
             headers,
             body: JSON.stringify({
-                message: 'RSVP saved successfully',
-                data: sanitizedData
+                message: 'RSVP updated successfully',
+                data: result.Attributes
             })
         };
 
     } catch (error) {
-        console.error('Error saving RSVP:', error);
+        console.error('Error updating RSVP:', error);
 
         return {
             statusCode: 500,

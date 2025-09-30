@@ -1,5 +1,4 @@
 import * as cdk from 'aws-cdk-lib';
-import * as cognito from 'aws-cdk-lib/aws-cognito';
 import * as dynamodb from 'aws-cdk-lib/aws-dynamodb';
 import * as lambda from 'aws-cdk-lib/aws-lambda';
 import * as apigateway from 'aws-cdk-lib/aws-apigateway';
@@ -7,18 +6,17 @@ import * as s3 from 'aws-cdk-lib/aws-s3';
 import * as cloudfront from 'aws-cdk-lib/aws-cloudfront';
 import * as origins from 'aws-cdk-lib/aws-cloudfront-origins';
 import * as s3deploy from 'aws-cdk-lib/aws-s3-deployment';
-import * as iam from 'aws-cdk-lib/aws-iam';
 import { Construct } from 'constructs';
 
 export class EventRsvpStack extends cdk.Stack {
   constructor(scope: Construct, id: string, props?: cdk.StackProps) {
     super(scope, id, props);
 
-    // DynamoDB Table for RSVP data
-    const rsvpTable = new dynamodb.Table(this, 'RSVPTable', {
-      tableName: 'event-rsvp-responses',
+    // DynamoDB Table for Guest data
+    const guestTable = new dynamodb.Table(this, 'GuestTable', {
+      tableName: 'event-guests',
       partitionKey: {
-        name: 'phoneNumber',
+        name: 'guestId',
         type: dynamodb.AttributeType.STRING,
       },
       billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
@@ -27,76 +25,57 @@ export class EventRsvpStack extends cdk.Stack {
       removalPolicy: cdk.RemovalPolicy.DESTROY, // For dev/demo purposes
     });
 
-    // Cognito User Pool for phone number authentication
-    const userPool = new cognito.UserPool(this, 'UserPool', {
-      userPoolName: 'event-rsvp-users',
-      signInAliases: {
-        phone: true,
+    // Global Secondary Index for invite code lookups
+    guestTable.addGlobalSecondaryIndex({
+      indexName: 'InviteCodeIndex',
+      partitionKey: {
+        name: 'inviteCode',
+        type: dynamodb.AttributeType.STRING,
       },
-      selfSignUpEnabled: true,
-      passwordPolicy: {
-        minLength: 8,
-        requireLowercase: false,
-        requireUppercase: false,
-        requireDigits: false,
-        requireSymbols: false,
-      },
-      mfa: cognito.Mfa.REQUIRED,
-      mfaSecondFactor: {
-        sms: true,
-        otp: false,
-      },
-      smsRole: new iam.Role(this, 'SMSRole', {
-        assumedBy: new iam.ServicePrincipal('cognito-idp.amazonaws.com'),
-        managedPolicies: [
-          iam.ManagedPolicy.fromAwsManagedPolicyName('AmazonSNSRole')
-        ]
-      }),
-      autoVerify: {
-        phone: true,
-      },
-      accountRecovery: cognito.AccountRecovery.PHONE_ONLY_WITHOUT_MFA,
-      removalPolicy: cdk.RemovalPolicy.DESTROY,
+      projectionType: dynamodb.ProjectionType.ALL,
     });
 
-    // Cognito User Pool Client
-    const userPoolClient = new cognito.UserPoolClient(this, 'UserPoolClient', {
-      userPool,
-      userPoolClientName: 'event-rsvp-client',
-      generateSecret: false,
-      authFlows: {
-        userSrp: true,
-        adminUserPassword: false,
-        custom: false,
-        userPassword: false,
-      },
+    // API Key for simple authentication
+    const apiKey = new apigateway.ApiKey(this, 'EventRSVPApiKey', {
+      apiKeyName: 'event-rsvp-api-key',
+      description: 'API key for Event RSVP application',
     });
 
     // Lambda Functions
+    const guestAuthFunction = new lambda.Function(this, 'GuestAuthFunction', {
+      runtime: lambda.Runtime.NODEJS_18_X,
+      handler: 'guest-auth.handler',
+      code: lambda.Code.fromAsset('lambda'),
+      environment: {
+        TABLE_NAME: guestTable.tableName,
+      },
+      timeout: cdk.Duration.seconds(30),
+    });
+
     const rsvpFunction = new lambda.Function(this, 'RSVPFunction', {
       runtime: lambda.Runtime.NODEJS_18_X,
       handler: 'rsvp.handler',
       code: lambda.Code.fromAsset('lambda'),
       environment: {
-        TABLE_NAME: rsvpTable.tableName,
-        USER_POOL_ID: userPool.userPoolId,
+        TABLE_NAME: guestTable.tableName,
       },
       timeout: cdk.Duration.seconds(30),
     });
 
-    const getFunction = new lambda.Function(this, 'GetRSVPFunction', {
+    const getGuestFunction = new lambda.Function(this, 'GetGuestFunction', {
       runtime: lambda.Runtime.NODEJS_18_X,
-      handler: 'get-rsvp.handler',
+      handler: 'get-guest.handler',
       code: lambda.Code.fromAsset('lambda'),
       environment: {
-        TABLE_NAME: rsvpTable.tableName,
+        TABLE_NAME: guestTable.tableName,
       },
       timeout: cdk.Duration.seconds(30),
     });
 
     // Grant DynamoDB permissions to Lambda functions
-    rsvpTable.grantReadWriteData(rsvpFunction);
-    rsvpTable.grantReadData(getFunction);
+    guestTable.grantReadWriteData(guestAuthFunction);
+    guestTable.grantReadWriteData(rsvpFunction);
+    guestTable.grantReadData(getGuestFunction);
 
     // API Gateway
     const api = new apigateway.RestApi(this, 'EventRSVPAPI', {
@@ -109,20 +88,38 @@ export class EventRsvpStack extends cdk.Stack {
       },
     });
 
-    // Cognito Authorizer
-    const authorizer = new apigateway.CognitoUserPoolsAuthorizer(this, 'CognitoAuthorizer', {
-      cognitoUserPools: [userPool],
+    // Usage Plan for API Key
+    const usagePlan = new apigateway.UsagePlan(this, 'EventRSVPUsagePlan', {
+      name: 'Event RSVP Usage Plan',
+      throttle: {
+        rateLimit: 100,
+        burstLimit: 200,
+      },
+      quota: {
+        limit: 10000,
+        period: apigateway.Period.MONTH,
+      },
+    });
+
+    usagePlan.addApiKey(apiKey);
+    usagePlan.addApiStage({
+      stage: api.deploymentStage,
     });
 
     // API Resources
+    const authResource = api.root.addResource('auth');
+    authResource.addMethod('POST', new apigateway.LambdaIntegration(guestAuthFunction), {
+      apiKeyRequired: true,
+    });
+
+    const guestResource = api.root.addResource('guest');
+    guestResource.addMethod('GET', new apigateway.LambdaIntegration(getGuestFunction), {
+      apiKeyRequired: true,
+    });
+
     const rsvpResource = api.root.addResource('rsvp');
     rsvpResource.addMethod('POST', new apigateway.LambdaIntegration(rsvpFunction), {
-      authorizer,
-      authorizationType: apigateway.AuthorizationType.COGNITO,
-    });
-    rsvpResource.addMethod('GET', new apigateway.LambdaIntegration(getFunction), {
-      authorizer,
-      authorizationType: apigateway.AuthorizationType.COGNITO,
+      apiKeyRequired: true,
     });
 
     // S3 Bucket for hosting the frontend
@@ -173,14 +170,9 @@ export class EventRsvpStack extends cdk.Stack {
     // });
 
     // Outputs
-    new cdk.CfnOutput(this, 'UserPoolId', {
-      value: userPool.userPoolId,
-      description: 'Cognito User Pool ID',
-    });
-
-    new cdk.CfnOutput(this, 'UserPoolClientId', {
-      value: userPoolClient.userPoolClientId,
-      description: 'Cognito User Pool Client ID',
+    new cdk.CfnOutput(this, 'ApiKeyId', {
+      value: apiKey.keyId,
+      description: 'API Gateway Key ID',
     });
 
     new cdk.CfnOutput(this, 'APIEndpoint', {

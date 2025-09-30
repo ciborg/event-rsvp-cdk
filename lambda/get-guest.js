@@ -10,25 +10,22 @@ exports.handler = async (event) => {
     };
 
     try {
-        // Extract user info from Cognito JWT token
-        const phoneNumber = event.requestContext.authorizer.claims.phone_number;
+        const guestId = event.queryStringParameters?.guestId;
 
-        if (!phoneNumber) {
+        if (!guestId) {
             return {
                 statusCode: 400,
                 headers,
                 body: JSON.stringify({
-                    error: 'Phone number not found in token'
+                    error: 'Guest ID is required'
                 })
             };
         }
 
-        // Query DynamoDB for existing RSVP
+        // Query DynamoDB for guest data
         const params = {
             TableName: process.env.TABLE_NAME,
-            Key: {
-                phoneNumber: phoneNumber.replace(/[^+\d]/g, '') // Sanitize phone number
-            }
+            Key: { guestId }
         };
 
         const result = await dynamodb.get(params).promise();
@@ -38,7 +35,7 @@ exports.handler = async (event) => {
                 statusCode: 404,
                 headers,
                 body: JSON.stringify({
-                    message: 'No RSVP found for this phone number'
+                    error: 'Guest not found'
                 })
             };
         }
@@ -52,7 +49,7 @@ exports.handler = async (event) => {
         };
 
     } catch (error) {
-        console.error('Error getting RSVP:', error);
+        console.error('Error getting guest:', error);
 
         return {
             statusCode: 500,
