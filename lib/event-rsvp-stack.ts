@@ -167,7 +167,7 @@ export class EventRsvpStack extends cdk.Stack {
 
     // S3 Bucket for hosting the frontend
     const websiteBucket = new s3.Bucket(this, 'WebsiteBucket', {
-      bucketName: `event-rsvp-website-${cdk.Aws.ACCOUNT_ID}-${cdk.Aws.REGION}`,
+      bucketName: `event-rsvp-website-${cdk.Aws.REGION}`,
       publicReadAccess: false,
       blockPublicAccess: s3.BlockPublicAccess.BLOCK_ALL,
       removalPolicy: cdk.RemovalPolicy.DESTROY,
