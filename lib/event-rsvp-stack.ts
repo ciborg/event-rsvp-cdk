@@ -135,8 +135,8 @@ export class EventRsvpStack extends cdk.Stack {
     const usagePlan = new apigateway.UsagePlan(this, 'EventRSVPUsagePlan', {
       name: 'Event RSVP Usage Plan',
       throttle: {
-        rateLimit: 100,
-        burstLimit: 200,
+        rateLimit: 1,
+        burstLimit: 2,
       },
       quota: {
         limit: 10000,
