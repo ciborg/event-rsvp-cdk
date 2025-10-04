@@ -84,7 +84,7 @@ export class EventRsvpStack extends cdk.Stack {
 
     // Lambda Functions
     const guestAuthFunction = new lambda.Function(this, 'GuestAuthFunction', {
-      runtime: lambda.Runtime.NODEJS_18_X,
+      runtime: lambda.Runtime.NODEJS_20_X,
       handler: 'guest-auth.handler',
       code: lambda.Code.fromAsset('lambda'),
       environment: {
@@ -94,7 +94,7 @@ export class EventRsvpStack extends cdk.Stack {
     });
 
     const rsvpFunction = new lambda.Function(this, 'RSVPFunction', {
-      runtime: lambda.Runtime.NODEJS_18_X,
+      runtime: lambda.Runtime.NODEJS_20_X,
       handler: 'rsvp.handler',
       code: lambda.Code.fromAsset('lambda'),
       environment: {
@@ -104,7 +104,7 @@ export class EventRsvpStack extends cdk.Stack {
     });
 
     const getGuestFunction = new lambda.Function(this, 'GetGuestFunction', {
-      runtime: lambda.Runtime.NODEJS_18_X,
+      runtime: lambda.Runtime.NODEJS_20_X,
       handler: 'get-guest.handler',
       code: lambda.Code.fromAsset('lambda'),
       environment: {
