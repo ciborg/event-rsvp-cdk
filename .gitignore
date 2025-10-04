@@ -1,3 +1,7 @@
 cdk.out/
 node_modules/
+*.d.ts
+bin/*.js
+lib/*.js
+test/*.js
 

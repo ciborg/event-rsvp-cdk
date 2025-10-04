@@ -15,7 +15,7 @@ describe('EventRsvpStack', () => {
 
   test('DynamoDB table created with correct properties', () => {
     template.hasResourceProperties('AWS::DynamoDB::Table', {
-      TableName: 'event-rsvp-responses',
+      TableName: 'event-guests',
       BillingMode: 'PAY_PER_REQUEST',
       SSESpecification: {
         SSEEnabled: true
@@ -26,15 +26,6 @@ describe('EventRsvpStack', () => {
     });
   });
 
-  test('Cognito User Pool created with phone authentication', () => {
-    template.hasResourceProperties('AWS::Cognito::UserPool', {
-      UserPoolName: 'event-rsvp-users',
-      UsernameAttributes: ['phone_number'],
-      MfaConfiguration: 'ON',
-      AutoVerifiedAttributes: ['phone_number']
-    });
-  });
-
   test('API Gateway created with CORS', () => {
     template.hasResourceProperties('AWS::ApiGateway::RestApi', {
       Name: 'Event RSVP API'
@@ -42,7 +33,7 @@ describe('EventRsvpStack', () => {
   });
 
   test('Lambda functions created', () => {
-    template.resourceCountIs('AWS::Lambda::Function', 3);
+    template.resourceCountIs('AWS::Lambda::Function', 4);
   });
 
   test('S3 bucket created for website hosting', () => {
@@ -83,8 +74,6 @@ describe('EventRsvpStack', () => {
   });
 
   test('Outputs are defined', () => {
-    template.hasOutput('UserPoolId', {});
-    template.hasOutput('UserPoolClientId', {});
     template.hasOutput('APIEndpoint', {});
     template.hasOutput('WebsiteURL', {});
     template.hasOutput('WebsiteBucketName', {});
