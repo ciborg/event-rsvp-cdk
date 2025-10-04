@@ -11,26 +11,26 @@ Internet → CloudFront → S3 (Static Website)
                      ↓
 Users → API Gateway → Lambda Functions → DynamoDB
        ↓
-   Cognito User Pool (SMS Auth)
+   API Key Authentication
 ```
 
 ## 📦 AWS Resources Created
 
 ### Authentication & Authorization
-- **AWS Cognito User Pool**: Phone number-based authentication with SMS MFA
-- **Cognito User Pool Client**: Frontend application integration
-- **IAM Role**: SMS service permissions for Cognito
+- **API Gateway API Key**: Simple API key-based authentication
+- **Usage Plan**: Rate limiting and quota management
 
 ### API & Compute
 - **API Gateway REST API**: Secure API endpoints with CORS support
 - **Lambda Functions**:
+  - Guest authentication handler
   - RSVP submission handler
-  - RSVP retrieval handler
-- **Cognito Authorizer**: JWT token validation for API access
+  - Guest data retrieval handler
 
 ### Data Storage
-- **DynamoDB Table**: RSVP data storage with encryption at rest
-  - Partition Key: `phoneNumber`
+- **DynamoDB Table**: Guest and RSVP data storage with encryption at rest
+  - Partition Key: `guestId`
+  - Global Secondary Index: `inviteCode`
   - Pay-per-request billing
   - Point-in-time recovery enabled
 
@@ -60,7 +60,7 @@ Users → API Gateway → Lambda Functions → DynamoDB
 - **Authentication**: Multi-factor authentication required
 
 ### Access Control
-- **API Authorization**: Cognito JWT token required for all API calls
+- **API Authorization**: API key required for all API calls
 - **Lambda Permissions**: Minimal IAM permissions
 - **S3 Access**: Blocked public access, CloudFront-only access
 
@@ -84,7 +84,6 @@ cdk deploy      # Deploy infrastructure
 ### Environment Variables
 The following environment variables are available to Lambda functions:
 - `TABLE_NAME`: DynamoDB table name
-- `USER_POOL_ID`: Cognito User Pool ID
 
 ## 🧪 Testing
 
@@ -95,7 +94,7 @@ npm test
 
 Tests verify:
 - ✅ DynamoDB table configuration
-- ✅ Cognito User Pool setup
+- ✅ API Gateway setup with API key authentication
 - ✅ API Gateway CORS configuration
 - ✅ Lambda function creation
 - ✅ S3 bucket security settings
@@ -143,8 +142,7 @@ Consider setting up CloudWatch alarms for:
 
 After deployment, the following outputs are available:
 
-- **UserPoolId**: Use in frontend configuration
-- **UserPoolClientId**: Use in frontend configuration
+- **ApiKeyId**: API Gateway key ID for authentication
 - **APIEndpoint**: Base URL for API calls
 - **WebsiteURL**: CloudFront distribution URL
 - **WebsiteBucketName**: S3 bucket for deploying frontend
@@ -186,8 +184,7 @@ For enhanced security:
 ### Regional Deployment
 This stack is designed for `us-east-1` region. To deploy in other regions:
 1. Update region in `bin/event-rsvp-cdk.ts`
-2. Ensure Cognito SMS service is available in target region
-3. Update asset bucket names if needed
+2. Update asset bucket names if needed
 
 ## 🔄 Updates & Maintenance
 
@@ -219,10 +216,10 @@ This stack is designed for `us-east-1` region. To deploy in other regions:
    - Check for existing resources with same names
    - Use unique stack names for multiple environments
 
-4. **Cognito SMS Issues**
-   - Verify SMS service is available in your region
-   - Check spending limits on SMS usage
-   - Ensure phone numbers are in correct format
+4. **API Key Issues**
+   - Ensure API key is properly configured in usage plan
+   - Check API key permissions and rate limits
+   - Verify API key is included in request headers
 
 ### Debug Commands
 ```bash
