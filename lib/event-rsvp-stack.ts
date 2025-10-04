@@ -243,13 +243,13 @@ export class EventRsvpStack extends cdk.Stack {
       }
     }
 
-    // Deploy website to S3 (will be done manually for now)
-    // new s3deploy.BucketDeployment(this, 'DeployWebsite', {
-    //   sources: [s3deploy.Source.asset('../event-rsvp-app/dist')],
-    //   destinationBucket: websiteBucket,
-    //   distribution,
-    //   distributionPaths: ['/*'],
-    // });
+    // Deploy website to S3
+    new s3deploy.BucketDeployment(this, 'DeployWebsite', {
+      sources: [s3deploy.Source.asset('../event-rsvp-app/dist')],
+      destinationBucket: websiteBucket,
+      distribution,
+      distributionPaths: ['/*'],
+    });
 
     // Outputs
     new cdk.CfnOutput(this, 'ApiKeyId', {
