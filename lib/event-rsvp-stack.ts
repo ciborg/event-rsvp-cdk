@@ -46,6 +46,7 @@ export class EventRsvpStack extends cdk.Stack {
       } else {
         certificate = new certificatemanager.Certificate(this, 'Certificate', {
           domainName: props.domainName,
+          subjectAlternativeNames: [`*.${props.domainName}`],
           validation: certificatemanager.CertificateValidation.fromDns(hostedZone),
         });
       }

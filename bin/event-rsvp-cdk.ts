@@ -8,4 +8,5 @@ new EventRsvpStack(app, 'EventRsvpStack', {
   env: {
     region: process.env.CDK_DEFAULT_REGION || 'us-east-1',
   },
+  domainName: 'alanamiroslava.mx',
 });
